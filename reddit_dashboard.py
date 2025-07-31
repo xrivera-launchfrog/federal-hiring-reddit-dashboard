@@ -673,15 +673,35 @@ fig_sentiment_time = px.line(
     line_shape='spline'
 )
 
-# Add policy event markers
+# Add policy event markers as annotations instead of vlines
 if milestone_impacts:
     for idx, m in enumerate(milestone_impacts[:5]):  # Top 5 events
-        fig_sentiment_time.add_vline(
-            x=m['date'].isoformat(),  # Convert date to string format
-            line_dash="dash", 
-            line_color="red",
-            annotation_text=m['name'][:20] + '...',
-            annotation_position="top"
+        # Add a scatter point for the event
+        fig_sentiment_time.add_scatter(
+            x=[m['date']],
+            y=[daily_sentiment[daily_sentiment['date'] == m['date']]['sentiment_score'].iloc[0] if len(daily_sentiment[daily_sentiment['date'] == m['date']]) > 0 else -1],
+            mode='markers',
+            marker=dict(size=10, color='red', symbol='diamond'),
+            name=m['name'][:20] + '...',
+            showlegend=False
+        )
+        
+        # Add annotation
+        fig_sentiment_time.add_annotation(
+            x=m['date'],
+            y=daily_sentiment['sentiment_score'].min() - 0.2,
+            text=m['name'][:20] + '...',
+            showarrow=True,
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=1,
+            arrowcolor="red",
+            ax=0,
+            ay=-30,
+            font=dict(size=9),
+            bgcolor="white",
+            bordercolor="red",
+            borderwidth=1
         )
 
 fig_sentiment_time.update_layout(height=400)
