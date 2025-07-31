@@ -451,101 +451,86 @@ st.markdown("---")
 # ===== 2. EXECUTIVE SUMMARY =====
 st.markdown("## Key Insights at a Glance")
 
-# Analyze each milestone
-milestone_impacts = []
-for milestone in milestones:
-    if milestone['date'] <= date_max:  # Only analyze milestones that have occurred
-        impact = analyze_milestone_impact(filtered_df, milestone)
-        milestone_impacts.append({
-            'name': f"{milestone['name']} ({milestone['date'].strftime('%b %d, %Y')})",
-            'date': milestone['date'],
-            'impact': impact
-        })
+# Calculate theme metrics for summary
+theme_counts = {}
+theme_columns = [col for col in filtered_df.columns if col.startswith('theme_')]
 
-# Calculate key metrics for summary
-hiring_df = filtered_df[filtered_df['is_hiring_related']]
-total_hiring_discussions = hiring_df['thread_id'].nunique()
-pessimistic_count = len(hiring_df[hiring_df['sentiment_category'] == 'Pessimistic'])
-optimistic_count = len(hiring_df[hiring_df['sentiment_category'] == 'Optimistic'])
-neutral_count = len(hiring_df[hiring_df['sentiment_category'] == 'Neutral'])
+for theme_col in theme_columns:
+    theme_name = theme_col.replace('theme_', '')
+    # Count unique threads discussing this theme
+    thread_count = filtered_df[filtered_df[theme_col]]['thread_id'].nunique()
+    # Count total mentions (posts + comments)
+    total_mentions = filtered_df[filtered_df[theme_col]].shape[0]
+    if thread_count > 0:
+        theme_counts[theme_name] = {
+            'threads': thread_count,
+            'mentions': total_mentions,
+            'percentage': thread_count / unique_threads * 100
+        }
 
-if optimistic_count > 0:
-    pessimistic_ratio = pessimistic_count / optimistic_count
-else:
-    pessimistic_ratio = float('inf')
+# Sort themes by prevalence
+sorted_themes = sorted(theme_counts.items(), key=lambda x: x[1]['threads'], reverse=True)
 
-# Create insight cards
+# Create insight cards for top themes
 insight_col1, insight_col2 = st.columns(2)
 
 with insight_col1:
-    if pessimistic_ratio != float('inf'):
-        st.markdown(f"""
-        <div class='insight-card insight-negative'>
-            <b>Federal workers are {pessimistic_ratio:.1f}x more likely to express pessimism than optimism</b><br>
-            <small>Based on {len(hiring_df):,} hiring-related discussions</small>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div class='insight-card insight-negative'>
-            <b>Federal workers express overwhelming pessimism with virtually no optimistic content</b><br>
-            <small>{pessimistic_count:,} pessimistic vs {optimistic_count} optimistic discussions</small>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown("### 🎯 Most Discussed Topics")
     
-    # Sentiment distribution
-    st.markdown(f"""
-    <div class='insight-card insight-info'>
-        <b>Sentiment Breakdown: {pessimistic_count/len(hiring_df)*100:.0f}% Negative, {neutral_count/len(hiring_df)*100:.0f}% Neutral, {optimistic_count/len(hiring_df)*100:.0f}% Positive</b><br>
-        <small>Negative sentiment dominates federal hiring discussions</small>
-    </div>
-    """, unsafe_allow_html=True)
-
-with insight_col2:
-    # Top theme by volume
-    theme_counts = {}
-    theme_columns = [col for col in df.columns if col.startswith('theme_')]
-    
-    for theme_col in theme_columns:
-        theme_name = theme_col.replace('theme_', '')
-        count = filtered_df[filtered_df[theme_col]]['thread_id'].nunique()
-        if count > 0:
-            theme_counts[theme_name] = count
-    
-    if theme_counts:
-        top_theme = max(theme_counts, key=theme_counts.get)
-        top_theme_pct = theme_counts[top_theme] / unique_threads * 100
-    else:
-        top_theme = "Unknown"
-        top_theme_pct = 0
-    
-    st.markdown(f"""
-    <div class='insight-card insight-info'>
-        <b>{top_theme} is the dominant concern, appearing in {top_theme_pct:.0f}% of all threads</b><br>
-        <small>{theme_counts.get(top_theme, 0)} of {unique_threads:,} total threads</small>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Political concerns
-    political_threads = filtered_df[filtered_df['theme_Political Appointments']]['thread_id'].nunique() if 'theme_Political Appointments' in filtered_df.columns else 0
-    political_in_viral = filtered_threads[
-        (filtered_threads['thread_id'].isin(filtered_df[filtered_df['theme_Political Appointments']]['thread_id'])) &
-        (filtered_threads['comment_count'] > 50)
-    ].shape[0] if 'theme_Political Appointments' in filtered_df.columns else 0
-    
-    if political_threads > 0:
+    # Top 3 themes
+    for idx, (theme, data) in enumerate(sorted_themes[:3]):
+        emoji = "🔴" if theme in ['Job Security/RIFs', 'Political Appointments'] else "🟡"
         st.markdown(f"""
         <div class='insight-card insight-warning'>
-            <b>Political hiring concerns appear in {political_threads/unique_threads*100:.0f}% of threads</b><br>
-            <small>And dominate {political_in_viral} high-engagement discussions</small>
+            <b>{emoji} {data['percentage']:.0f}% discussed {theme}</b><br>
+            <small>{data['threads']:,} threads with {data['mentions']:,} total posts/comments</small>
         </div>
         """, unsafe_allow_html=True)
+
+with insight_col2:
+    st.markdown("### 📊 Key Statistics")
+    
+    # Overall engagement metrics
+    hiring_df = filtered_df[filtered_df['is_hiring_related']]
+    total_hiring_discussions = hiring_df['thread_id'].nunique()
+    avg_thread_size = filtered_threads['comment_count'].mean()
+    
+    st.markdown(f"""
+    <div class='insight-card insight-info'>
+        <b>{total_hiring_discussions:,} hiring-related discussions analyzed</b><br>
+        <small>Average of {avg_thread_size:.0f} comments per thread</small>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Viral discussion indicator
+    viral_hiring = filtered_threads[
+        (filtered_threads['is_hiring_thread']) & 
+        (filtered_threads['comment_count'] > 50)
+    ].shape[0]
+    
+    st.markdown(f"""
+    <div class='insight-card insight-negative'>
+        <b>{viral_hiring} threads sparked major debates (50+ comments)</b><br>
+        <small>Indicating high emotional engagement with these topics</small>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.markdown("---")
 
 # ===== 3. POLICY IMPACT HIGHLIGHTS =====
 if milestone_impacts:
     st.markdown("## Major Policy Events & Their Sentiment Impact")
+    
+    # Analyze each milestone
+    milestone_impacts = []
+    for milestone in milestones:
+        if milestone['date'] <= date_max:  # Only analyze milestones that have occurred
+            impact = analyze_milestone_impact(filtered_df, milestone)
+            milestone_impacts.append({
+                'name': f"{milestone['name']} ({milestone['date'].strftime('%b %d, %Y')})",
+                'date': milestone['date'],
+                'impact': impact
+            })
     
     # Find most impactful events
     most_negative = max(milestone_impacts, key=lambda x: x['impact']['7_day']['negative_pct'])
@@ -689,14 +674,15 @@ fig_sentiment_time = px.line(
 )
 
 # Add policy event markers
-for m in milestone_impacts[:5]:  # Top 5 events
-    fig_sentiment_time.add_vline(
-        x=m['date'], 
-        line_dash="dash", 
-        line_color="red",
-        annotation_text=m['name'][:20] + '...',
-        annotation_position="top"
-    )
+if milestone_impacts:
+    for idx, m in enumerate(milestone_impacts[:5]):  # Top 5 events
+        fig_sentiment_time.add_vline(
+            x=m['date'].isoformat(),  # Convert date to string format
+            line_dash="dash", 
+            line_color="red",
+            annotation_text=m['name'][:20] + '...',
+            annotation_position="top"
+        )
 
 fig_sentiment_time.update_layout(height=400)
 st.plotly_chart(fig_sentiment_time, use_container_width=True)
