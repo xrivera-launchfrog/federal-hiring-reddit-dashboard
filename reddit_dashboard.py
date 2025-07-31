@@ -91,7 +91,7 @@ def load_data():
 # Enhanced sentiment analysis with negative bias (Reddit reality)
 @st.cache_data
 def analyze_hiring_sentiment(df):
-    """Analyze sentiment with realistic weighting for Reddit content"""
+    """Analyze sentiment with realistic weighting for Reddit content - heavily reduced neutral classification"""
     
     # Hiring-related themes
     hiring_themes = {
@@ -107,29 +107,44 @@ def analyze_hiring_sentiment(df):
         'Morale': r'\b(morale|burnout|stress|toxic|hostile|frustrated|exhausted|tired)\b'
     }
     
+    # Critical topics that are almost never neutral when discussed
+    critical_topics = {
+        'doge': r'\b(DOGE|department of government efficiency|govt efficiency|government efficiency)\b',
+        'layoffs': r'\b(layoff|mass layoff|reduction in force|RIF|termination|firing|fired|let go|job loss|pink slip)\b',
+        'schedule_f': r'\b(schedule f|schedule-f|deferred resignation|deferred-resignation)\b'
+    }
+    
     # Sentiment patterns with Reddit-appropriate weighting
     # Negative patterns (weighted more heavily)
-    strong_negative_patterns = r'\b(illegal|corrupt|theft|scam|fraud|disaster|terrible|awful|hate|disgusting|betrayal|crime|violation|unethical|unconstitutional)\b'
-    moderate_negative_patterns = r'\b(worried|concerned|fear|uncertain|frustrated|angry|disappointed|unfair|worse|declining|problem|issue|difficult|struggle|failed|failing)\b'
-    mild_negative_patterns = r'\b(confused|unclear|unsure|challenging|tough|hard|complicated|bureaucracy|red tape|slow|delays)\b'
+    strong_negative_patterns = r'\b(illegal|corrupt|theft|scam|fraud|disaster|terrible|awful|hate|disgusting|betrayal|crime|violation|unethical|unconstitutional|outrageous|ridiculous|unacceptable|shameful|despicable)\b'
+    moderate_negative_patterns = r'\b(worried|concerned|fear|uncertain|frustrated|angry|disappointed|unfair|worse|declining|problem|issue|difficult|struggle|failed|failing|troubling|disturbing|alarming|threatening|scary|anxious|nervous)\b'
+    mild_negative_patterns = r'\b(confused|unclear|unsure|challenging|tough|hard|complicated|bureaucracy|red tape|slow|delays|unfortunate|concerning|questionable|doubt|skeptical)\b'
     
     # Positive patterns (require stronger evidence)
-    strong_positive_patterns = r'\b(excellent|amazing|fantastic|wonderful|love|perfect|best)\b'
-    moderate_positive_patterns = r'\b(opportunity|improvement|hope|better|excited|positive|progress|success|happy|glad|optimistic)\b'
+    strong_positive_patterns = r'\b(excellent|amazing|fantastic|wonderful|love|perfect|best|thrilled|ecstatic|delighted)\b'
+    moderate_positive_patterns = r'\b(opportunity|improvement|hope|better|excited|positive|progress|success|happy|glad|optimistic|encouraged|promising|beneficial)\b'
     
     # Context modifiers that flip sentiment
-    negation_patterns = r'\b(not|no|never|without|lack|missing|absence)\s+'
+    negation_patterns = r'\b(not|no|never|without|lack|missing|absence|neither|none|hardly|barely|scarcely)\s+'
+    sarcasm_indicators = r'\b(yeah right|sure|totally|definitely|absolutely)\b.*[!?]|/s\b'
     
     # Detect themes
     for theme, pattern in hiring_themes.items():
         df[f'theme_{theme}'] = df['full_text'].str.contains(pattern, case=False, regex=True, na=False)
     
-    # Calculate sentiment with Reddit bias
+    # Calculate sentiment with Reddit bias and critical topic awareness
     def calculate_realistic_sentiment(text):
         if pd.isna(text) or text.strip() == '':
             return 0, 'Neutral'
         
         text_lower = text.lower()
+        
+        # Check if discussing critical topics - these heavily lean negative
+        is_critical_topic = False
+        for topic, pattern in critical_topics.items():
+            if re.search(pattern, text_lower):
+                is_critical_topic = True
+                break
         
         # Count negative indicators (weighted)
         strong_neg = len(re.findall(strong_negative_patterns, text_lower)) * 3
@@ -140,12 +155,27 @@ def analyze_hiring_sentiment(df):
         strong_pos = len(re.findall(strong_positive_patterns, text_lower)) * 2
         moderate_pos = len(re.findall(moderate_positive_patterns, text_lower)) * 1
         
+        # Check for sarcasm (flips positive to negative)
+        if re.search(sarcasm_indicators, text_lower):
+            # Flip positive scores to negative
+            strong_neg += strong_pos
+            moderate_neg += moderate_pos
+            strong_pos = 0
+            moderate_pos = 0
+        
         # Check for negated positives (these become negative)
         negated_positives = len(re.findall(negation_patterns + r'(' + moderate_positive_patterns + r')', text_lower))
+        negated_positives += len(re.findall(negation_patterns + r'(' + strong_positive_patterns + r')', text_lower))
         
         # Calculate total score
         negative_score = strong_neg + moderate_neg + mild_neg + (negated_positives * 2)
         positive_score = strong_pos + moderate_pos
+        
+        # Critical topic bias - if discussing DOGE, layoffs, etc., require overwhelming positive evidence
+        if is_critical_topic:
+            # Need 3x more positive than negative to overcome critical topic bias
+            if positive_score < negative_score * 3:
+                negative_score *= 1.5  # Amplify negative for critical topics
         
         # Reddit bias: require 2x more positive than negative to be considered positive
         net_score = positive_score - negative_score
@@ -155,13 +185,27 @@ def analyze_hiring_sentiment(df):
         if word_count > 20:  # Only normalize longer texts
             net_score = (net_score / word_count) * 100
         
-        # Categorize with Reddit-appropriate thresholds
-        if net_score > 2:  # High threshold for positive
+        # Categorize with Reddit-appropriate thresholds and reduced neutral zone
+        if net_score > 3:  # Very high threshold for positive
             category = 'Optimistic'
-        elif net_score < -0.5:  # Low threshold for negative
+        elif net_score < -0.3:  # Low threshold for negative
             category = 'Pessimistic'
         else:
-            category = 'Neutral'
+            # For critical topics, default to negative unless strong positive evidence
+            if is_critical_topic and net_score <= 1:
+                category = 'Pessimistic'
+            # For any discussion with sentiment words, avoid neutral
+            elif negative_score > 0 or positive_score > 0:
+                # If any sentiment detected, lean toward the dominant one
+                if negative_score > positive_score:
+                    category = 'Pessimistic'
+                elif positive_score > negative_score * 1.5:  # Need clear positive majority
+                    category = 'Optimistic'
+                else:
+                    category = 'Pessimistic'  # When in doubt on Reddit, it's negative
+            else:
+                # Only truly neutral if NO sentiment indicators found
+                category = 'Neutral'
         
         return net_score, category
     
@@ -342,16 +386,16 @@ with st.expander("📋 **About This Analysis** - Click to see data sources and m
     with context_col1:
         st.markdown("### Data Sources")
         
+        st.markdown(f"**Community Context**: Federal employee forums with 250K+ combined members")
+        
         # Subreddit breakdown
         subreddit_counts = filtered_df['subreddit'].value_counts()
         total_items = len(filtered_df)
         
-        st.markdown("**Communities Analyzed:**")
+        st.markdown("\n**Communities Analyzed:**")
         for subreddit, count in subreddit_counts.items():
             percentage = (count / total_items) * 100
             st.markdown(f"• **r/{subreddit}**: {count:,} items ({percentage:.1f}%)")
-        
-        st.markdown(f"\n**Community Context**: Federal employee forums with 250K+ combined members")
         
         # Methodology section
         st.markdown("### Methodology")
@@ -480,179 +524,215 @@ st.markdown("---")
 # EXPANDED SECTION: Hot Topics and Worker Voices
 st.markdown("## 🔥 Hot Topics: What Federal Workers Are Really Saying")
 
-# Analyze hot topics by engagement and recency
-hot_topics_df = filtered_df[
+# Get high-engagement comments with their parent posts
+high_engagement_comments = filtered_df[
+    (filtered_df['type'] == 'comment') &
     (filtered_df['sentiment_category'] == 'Pessimistic') &
     (filtered_df['body'].notna()) &
     (filtered_df['body'].str.len() > 100) &
-    (filtered_df['score'] > 10)  # High engagement posts
+    (filtered_df['score'] > 20)  # High engagement threshold for comments
 ].copy()
 
-# Add recency weight (more recent = higher weight)
-# Fix: Use created_utc instead of date for datetime operations
-hot_topics_df['days_ago'] = (pd.Timestamp.now() - hot_topics_df['created_utc']).dt.days
-hot_topics_df['recency_weight'] = 1 / (hot_topics_df['days_ago'] + 1)
-hot_topics_df['weighted_score'] = hot_topics_df['score'] * hot_topics_df['recency_weight']
+# Add recency weight
+high_engagement_comments['days_ago'] = (pd.Timestamp.now() - high_engagement_comments['created_utc']).dt.days
+high_engagement_comments['recency_weight'] = 1 / (high_engagement_comments['days_ago'] + 1)
+high_engagement_comments['weighted_score'] = high_engagement_comments['score'] * high_engagement_comments['recency_weight']
 
-# Sort by weighted score for "hottest" topics
-hot_topics_df = hot_topics_df.sort_values('weighted_score', ascending=False)
+# Sort by weighted score and remove duplicates by thread
+high_engagement_comments = high_engagement_comments.sort_values('weighted_score', ascending=False)
+high_engagement_comments = high_engagement_comments.drop_duplicates(subset=['thread_id'], keep='first')
+
+# Get parent post information for each comment
+def get_parent_post(thread_id):
+    parent = filtered_df[(filtered_df['thread_id'] == thread_id) & (filtered_df['type'] == 'post')]
+    if not parent.empty:
+        parent = parent.iloc[0]
+        title = str(parent['title']) if pd.notna(parent['title']) else ""
+        body = str(parent['body']) if pd.notna(parent['body']) else ""
+        # Create a summary of the original post
+        if title:
+            summary = title[:100] + "..." if len(title) > 100 else title
+        elif body:
+            summary = body[:100] + "..." if len(body) > 100 else body
+        else:
+            summary = "Discussion thread"
+        return summary
+    return "Discussion thread"
 
 # Create three columns for different topic categories
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.markdown("### 🚨 Job Security Fears")
-    st.markdown("*The most visceral reactions*")
+    st.markdown("### 🚨 Job Security & RIFs")
+    st.markdown("*Top comments on termination fears*")
     
-    job_fears = hot_topics_df[hot_topics_df['theme_Job Security/RIFs']].head(5)
-    for idx, post in job_fears.iterrows():
-        quote = str(post['body'])[:250].strip()
-        if len(str(post['body'])) > 250:
-            quote += "..."
+    job_comments = high_engagement_comments[high_engagement_comments['theme_Job Security/RIFs']].head(4)
+    
+    for idx, comment in job_comments.iterrows():
+        # Get parent post context
+        parent_summary = get_parent_post(comment['thread_id'])
         
-        # Color intensity based on sentiment score
-        bg_color = "#fee2e2" if post['sentiment_score'] < -2 else "#fef3c7"
+        # Format comment text
+        comment_text = str(comment['body'])[:200].strip()
+        if len(str(comment['body'])) > 200:
+            comment_text += "..."
         
-        # Format the date properly
-        post_date = post['created_utc'].strftime('%b %d, %Y')
+        # Color based on sentiment intensity
+        bg_color = "#fee2e2" if comment['sentiment_score'] < -2 else "#fef3c7"
+        
+        # Format date
+        post_date = comment['created_utc'].strftime('%b %d, %Y')
         
         st.markdown(f"""
-        <div style='background-color: {bg_color}; padding: 12px; margin: 8px 0; border-radius: 5px; border-left: 4px solid #dc2626;'>
-            <div style='font-size: 0.85em; color: #4b5563; margin-bottom: 5px;'>
-                📍 r/{post['subreddit']} | ⬆️ {post['score']} | 📅 {post_date}
+        <div style='background-color: {bg_color}; padding: 12px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #dc2626;'>
+            <div style='font-size: 0.8em; color: #6b7280; margin-bottom: 8px; padding: 5px; background-color: rgba(255,255,255,0.5); border-radius: 3px;'>
+                <b>Original Post:</b> {parent_summary}
             </div>
-            <div style='font-size: 0.9em; line-height: 1.4;'>
-                <i>"{quote}"</i>
+            <div style='font-size: 0.9em; line-height: 1.4; margin-bottom: 8px;'>
+                <b>Top Comment (⬆️ {comment['score']}):</b><br>
+                <i>"{comment_text}"</i>
+            </div>
+            <div style='font-size: 0.85em; color: #4b5563;'>
+                📍 r/{comment['subreddit']} | 📅 {post_date}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
 with col2:
     st.markdown("### 🎭 Political vs Merit")
-    st.markdown("*The loyalty test debate*")
+    st.markdown("*Top comments on loyalty tests*")
     
-    political_fears = hot_topics_df[
-        hot_topics_df['theme_Political Appointments'] | 
-        hot_topics_df['theme_Merit vs Loyalty']
-    ].head(5)
+    political_comments = high_engagement_comments[
+        high_engagement_comments['theme_Political Appointments'] | 
+        high_engagement_comments['theme_Merit vs Loyalty']
+    ].head(4)
     
-    for idx, post in political_fears.iterrows():
-        quote = str(post['body'])[:250].strip()
-        if len(str(post['body'])) > 250:
-            quote += "..."
+    for idx, comment in political_comments.iterrows():
+        # Get parent post context
+        parent_summary = get_parent_post(comment['thread_id'])
         
-        bg_color = "#fee2e2" if post['sentiment_score'] < -2 else "#fef3c7"
+        # Format comment text
+        comment_text = str(comment['body'])[:200].strip()
+        if len(str(comment['body'])) > 200:
+            comment_text += "..."
         
-        # Format the date properly
-        post_date = post['created_utc'].strftime('%b %d, %Y')
+        bg_color = "#fee2e2" if comment['sentiment_score'] < -2 else "#fef3c7"
+        
+        # Format date
+        post_date = comment['created_utc'].strftime('%b %d, %Y')
         
         st.markdown(f"""
-        <div style='background-color: {bg_color}; padding: 12px; margin: 8px 0; border-radius: 5px; border-left: 4px solid #f59e0b;'>
-            <div style='font-size: 0.85em; color: #4b5563; margin-bottom: 5px;'>
-                📍 r/{post['subreddit']} | ⬆️ {post['score']} | 📅 {post_date}
+        <div style='background-color: {bg_color}; padding: 12px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #f59e0b;'>
+            <div style='font-size: 0.8em; color: #6b7280; margin-bottom: 8px; padding: 5px; background-color: rgba(255,255,255,0.5); border-radius: 3px;'>
+                <b>Original Post:</b> {parent_summary}
             </div>
-            <div style='font-size: 0.9em; line-height: 1.4;'>
-                <i>"{quote}"</i>
+            <div style='font-size: 0.9em; line-height: 1.4; margin-bottom: 8px;'>
+                <b>Top Comment (⬆️ {comment['score']}):</b><br>
+                <i>"{comment_text}"</i>
+            </div>
+            <div style='font-size: 0.85em; color: #4b5563;'>
+                📍 r/{comment['subreddit']} | 📅 {post_date}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
 with col3:
-    st.markdown("### 😔 Morale Crisis")
-    st.markdown("*The human toll*")
+    st.markdown("### 😔 Workplace Morale")
+    st.markdown("*Top comments on burnout*")
     
-    morale_crisis = hot_topics_df[
-        hot_topics_df['theme_Morale'] | 
-        hot_topics_df['theme_Remote Work']
-    ].head(5)
+    morale_comments = high_engagement_comments[
+        high_engagement_comments['theme_Morale'] | 
+        high_engagement_comments['theme_Remote Work'] |
+        high_engagement_comments['theme_Pay and Benefits']
+    ].head(4)
     
-    for idx, post in morale_crisis.iterrows():
-        quote = str(post['body'])[:250].strip()
-        if len(str(post['body'])) > 250:
-            quote += "..."
+    for idx, comment in morale_comments.iterrows():
+        # Get parent post context
+        parent_summary = get_parent_post(comment['thread_id'])
         
-        bg_color = "#fee2e2" if post['sentiment_score'] < -2 else "#fef3c7"
+        # Format comment text
+        comment_text = str(comment['body'])[:200].strip()
+        if len(str(comment['body'])) > 200:
+            comment_text += "..."
         
-        # Format the date properly
-        post_date = post['created_utc'].strftime('%b %d, %Y')
+        bg_color = "#fee2e2" if comment['sentiment_score'] < -2 else "#fef3c7"
+        
+        # Format date
+        post_date = comment['created_utc'].strftime('%b %d, %Y')
         
         st.markdown(f"""
-        <div style='background-color: {bg_color}; padding: 12px; margin: 8px 0; border-radius: 5px; border-left: 4px solid #6b7280;'>
-            <div style='font-size: 0.85em; color: #4b5563; margin-bottom: 5px;'>
-                📍 r/{post['subreddit']} | ⬆️ {post['score']} | 📅 {post_date}
+        <div style='background-color: {bg_color}; padding: 12px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #6b7280;'>
+            <div style='font-size: 0.8em; color: #6b7280; margin-bottom: 8px; padding: 5px; background-color: rgba(255,255,255,0.5); border-radius: 3px;'>
+                <b>Original Post:</b> {parent_summary}
             </div>
-            <div style='font-size: 0.9em; line-height: 1.4;'>
-                <i>"{quote}"</i>
+            <div style='font-size: 0.9em; line-height: 1.4; margin-bottom: 8px;'>
+                <b>Top Comment (⬆️ {comment['score']}):</b><br>
+                <i>"{comment_text}"</i>
+            </div>
+            <div style='font-size: 0.85em; color: #4b5563;'>
+                📍 r/{comment['subreddit']} | 📅 {post_date}
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-# Trending topics analysis
+# Additional section for most viral discussions
 st.markdown("---")
-st.markdown("### 📈 Trending Concerns This Week")
+st.markdown("### 🔥 Most Engaged Discussions This Month")
 
-# Get last 7 days of data
-# Fix: Add days_ago column to filtered_df if not already there
-if 'days_ago' not in filtered_df.columns:
-    filtered_df['days_ago'] = (pd.Timestamp.now() - filtered_df['created_utc']).dt.days
+# Get threads with highest total engagement (post score + comment scores)
+thread_engagement = filtered_df.groupby('thread_id').agg({
+    'score': 'sum',
+    'type': 'count',
+    'sentiment_score': 'mean'
+}).reset_index()
+thread_engagement.columns = ['thread_id', 'total_score', 'total_items', 'avg_sentiment']
 
-last_week = filtered_df[filtered_df['days_ago'] <= 7]
-if len(last_week) > 0:
-    # Count theme mentions in last week
-    trending_themes = {}
-    for theme_col in theme_columns:
-        if theme_col in last_week.columns:
-            theme_name = theme_col.replace('theme_', '')
-            count = last_week[last_week[theme_col]]['thread_id'].nunique()
-            if count > 0:
-                trending_themes[theme_name] = count
-    
-    # Display top trending
-    if trending_themes:
-        sorted_trending = sorted(trending_themes.items(), key=lambda x: x[1], reverse=True)[:5]
+# Get top threads
+top_threads = thread_engagement.nlargest(5, 'total_score')
+
+for idx, thread in top_threads.iterrows():
+    # Get the original post
+    post = filtered_df[(filtered_df['thread_id'] == thread['thread_id']) & (filtered_df['type'] == 'post')]
+    if not post.empty:
+        post = post.iloc[0]
         
-        trend_col1, trend_col2 = st.columns([2, 3])
+        # Get top comment for this thread
+        top_comment = filtered_df[
+            (filtered_df['thread_id'] == thread['thread_id']) & 
+            (filtered_df['type'] == 'comment')
+        ].nlargest(1, 'score')
         
-        with trend_col1:
-            for theme, count in sorted_trending:
-                # Get sentiment for this theme in last week
-                theme_sentiment = last_week[last_week[f'theme_{theme}']]['sentiment_score'].mean()
-                sentiment_color = "🔴" if theme_sentiment < -1 else "🟡" if theme_sentiment < 0 else "🟢"
-                
-                st.markdown(f"""
-                <div style='background-color: #f8f9fa; padding: 10px; margin: 5px 0; border-radius: 5px;'>
-                    {sentiment_color} <b>{theme}</b><br>
-                    <small>{count} threads this week</small>
+        if not top_comment.empty:
+            top_comment = top_comment.iloc[0]
+            
+            # Determine sentiment color
+            sentiment_emoji = "🔴" if thread['avg_sentiment'] < -0.5 else "🟡" if thread['avg_sentiment'] < 0.5 else "🟢"
+            
+            st.markdown(f"""
+            <div style='background-color: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; border: 1px solid #e5e7eb;'>
+                <div style='margin-bottom: 10px;'>
+                    {sentiment_emoji} <b>{post['title'] if pd.notna(post['title']) else 'Discussion'}</b>
+                    <span style='float: right; color: #6b7280;'>r/{post['subreddit']} | {thread['total_items']-1} comments | {thread['total_score']} total score</span>
                 </div>
-                """, unsafe_allow_html=True)
-        
-        with trend_col2:
-            # Word frequency analysis for hot topics
-            recent_text = ' '.join(last_week[last_week['sentiment_category'] == 'Pessimistic']['full_text'].dropna().tolist())
-            
-            # Count specific concerning phrases
-            concerning_phrases = {
-                '"illegal firings"': len(re.findall(r'illegal\s+fir', recent_text, re.I)),
-                '"loyalty test"': len(re.findall(r'loyalty\s+test', recent_text, re.I)),
-                '"mass layoffs"': len(re.findall(r'mass\s+layoff', recent_text, re.I)),
-                '"hostile environment"': len(re.findall(r'hostile\s+environment', recent_text, re.I)),
-                '"unfair treatment"': len(re.findall(r'unfair\s+treatment', recent_text, re.I)),
-                '"political appointees"': len(re.findall(r'political\s+appointee', recent_text, re.I))
-            }
-            
-            st.markdown("**🔍 Most Used Phrases (Last 7 Days)**")
-            for phrase, count in sorted(concerning_phrases.items(), key=lambda x: x[1], reverse=True):
-                if count > 0:
-                    st.markdown(f"• {phrase}: **{count}** mentions")
+                <div style='padding: 10px; background-color: white; border-radius: 3px; margin-top: 5px;'>
+                    <div style='font-size: 0.9em; color: #4b5563; margin-bottom: 5px;'>
+                        <b>Most upvoted comment (⬆️ {top_comment['score']}):</b>
+                    </div>
+                    <div style='font-size: 0.9em; font-style: italic;'>
+                        "{str(top_comment['body'])[:300]}{'...' if len(str(top_comment['body'])) > 300 else ''}"
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
 # Summary insight
-total_negative_posts = len(hot_topics_df)
-avg_engagement = hot_topics_df['score'].mean() if len(hot_topics_df) > 0 else 0
+total_negative_posts = len(high_engagement_comments)
+avg_engagement = high_engagement_comments['score'].mean() if len(high_engagement_comments) > 0 else 0
 
 st.markdown(f"""
 <div style='background-color: #f3f4f6; padding: 15px; margin-top: 20px; border-radius: 5px; text-align: center;'>
-    <b>📊 Sentiment Summary:</b> {total_negative_posts:,} high-engagement negative posts analyzed<br>
-    <b>🔥 Average engagement:</b> {avg_engagement:.0f} upvotes per concerning post<br>
+    <b>📊 Sentiment Summary:</b> {total_negative_posts:,} high-engagement negative comments analyzed<br>
+    <b>🔥 Average engagement:</b> {avg_engagement:.0f} upvotes per concerning comment<br>
     <b>💔 Overall tone:</b> Federal workers express deep betrayal, fear, and exhaustion
 </div>
 """, unsafe_allow_html=True)
