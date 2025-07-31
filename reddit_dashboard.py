@@ -788,55 +788,6 @@ if legal_events:
                     </div>
                     """, unsafe_allow_html=True)
 
-st.markdown("---")
-
-# ===== 7. RECOMMENDATIONS & NEXT STEPS =====
-st.markdown("## Recommendations & Next Steps")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("### What This Means for Federal HR")
-    
-    st.markdown("""
-    Based on the sentiment analysis and discussion patterns:
-    
-    **🚨 Immediate Concerns to Address:**
-    1. **Job Security Fears** - Dominating {:.0f}% of discussions
-    2. **Merit vs Political Loyalty** - Creating deep mistrust
-    3. **Morale Crisis** - Widespread burnout and exhaustion
-    
-    **📊 Key Statistics:**
-    - {:.0f}% of hiring discussions are negative
-    - {:.0f}x more pessimism than optimism
-    - {:,} threads directly responding to policy changes
-    """.format(
-        theme_counts.get('Job Security/RIFs', 0) / unique_threads * 100 if theme_counts else 0,
-        pessimistic_count/len(hiring_df)*100 if len(hiring_df) > 0 else 0,
-        pessimistic_ratio if pessimistic_ratio != float('inf') else 10,
-        sum(m['impact']['7_day']['posts'] for m in milestone_impacts)
-    ))
-
-with col2:
-    st.markdown("### Actionable Takeaways")
-    
-    st.markdown("""
-    **For Leadership:**
-    - Address job security concerns transparently and immediately
-    - Clarify merit-based hiring commitments
-    - Invest in morale recovery programs
-    
-    **For HR Teams:**
-    - Prepare for increased turnover and recruitment challenges
-    - Document and communicate clear hiring criteria
-    - Create support systems for stressed employees
-    
-    **For Communications:**
-    - Counter misinformation about hiring processes
-    - Amplify success stories where they exist
-    - Provide regular, transparent updates
-    """)
-
 # Data source citation
 st.markdown("---")
 st.caption("""
