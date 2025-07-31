@@ -518,19 +518,19 @@ with insight_col2:
 st.markdown("---")
 
 # ===== 3. POLICY IMPACT HIGHLIGHTS =====
+# Analyze each milestone first
+milestone_impacts = []
+for milestone in milestones:
+    if milestone['date'] <= date_max:  # Only analyze milestones that have occurred
+        impact = analyze_milestone_impact(filtered_df, milestone)
+        milestone_impacts.append({
+            'name': f"{milestone['name']} ({milestone['date'].strftime('%b %d, %Y')})",
+            'date': milestone['date'],
+            'impact': impact
+        })
+
 if milestone_impacts:
     st.markdown("## Major Policy Events & Their Sentiment Impact")
-    
-    # Analyze each milestone
-    milestone_impacts = []
-    for milestone in milestones:
-        if milestone['date'] <= date_max:  # Only analyze milestones that have occurred
-            impact = analyze_milestone_impact(filtered_df, milestone)
-            milestone_impacts.append({
-                'name': f"{milestone['name']} ({milestone['date'].strftime('%b %d, %Y')})",
-                'date': milestone['date'],
-                'impact': impact
-            })
     
     # Find most impactful events
     most_negative = max(milestone_impacts, key=lambda x: x['impact']['7_day']['negative_pct'])
