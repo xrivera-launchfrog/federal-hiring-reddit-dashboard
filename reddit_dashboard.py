@@ -574,62 +574,7 @@ if milestone_impacts:
             </div>
             """, unsafe_allow_html=True)
 
-st.markdown("---")
-
-# ===== 4. DISCUSSION VOLUME TRENDS =====
-st.markdown("## Discussion Volume Trends")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown("### Policy Discussion Frequency")
-    
-    # Create timeline of policy discussions
-    if milestone_impacts:
-        policy_timeline = []
-        for m in milestone_impacts:
-            policy_timeline.append({
-                'Policy': m['name'][:40] + '...' if len(m['name']) > 40 else m['name'],
-                'Date': m['date'],
-                'Immediate Threads': m['impact']['immediate']['posts'],
-                '7-Day Threads': m['impact']['7_day']['posts']
-            })
-        
-        policy_df = pd.DataFrame(policy_timeline)
-        
-        # Create bar chart of discussion volume
-        fig_volume = px.bar(
-            policy_df,
-            x='Date',
-            y='7-Day Threads',
-            hover_data=['Policy', 'Immediate Threads'],
-            title='Thread Volume by Policy Event (7-day window)',
-            labels={'7-Day Threads': 'Number of Threads'}
-        )
-        fig_volume.update_layout(height=350)
-        st.plotly_chart(fig_volume, use_container_width=True)
-
-with col2:
-    st.markdown("### Most Discussed Hiring Policies")
-    
-    st.markdown(f"""
-    <div class='insight-card insight-warning'>
-        <b>Highest Discussion Volume</b><br>
-        <b style='font-size: 1.1em;'>{most_activity['name']}</b><br>
-        <small>🔥 {most_activity['impact']['immediate']['posts']} immediate threads</small><br>
-        <small>📈 {most_activity['impact']['7_day']['posts']} total threads in first week</small>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Top 3 most discussed
-    top_discussed = sorted(milestone_impacts, key=lambda x: x['impact']['7_day']['posts'], reverse=True)[:3]
-    for idx, policy in enumerate(top_discussed):
-        st.markdown(f"""
-        **{idx+1}. {policy['name']}**  
-        📊 {policy['impact']['7_day']['posts']} threads | 
-        📉 {policy['impact']['7_day']['negative_pct']:.0f}% negative
-        """)
-
+# Removed Discussion Volume Trends section
 st.markdown("---")
 
 # ===== 5. THEME DYNAMICS =====
@@ -638,9 +583,10 @@ st.markdown("## Theme Dynamics")
 # Theme prevalence over time
 st.markdown("### Most Discussed Themes Following Policy Changes")
 
-# Calculate theme prevalence by date
+# Calculate theme prevalence by date - starting from October 2024
 theme_timeline = []
-for date in pd.date_range(start=date_min, end=date_max, freq='W'):
+start_date = max(datetime(2024, 10, 1).date(), date_min)  # Start from Oct 2024 or data start
+for date in pd.date_range(start=start_date, end=date_max, freq='W'):
     week_data = hiring_df[
         (hiring_df['date'] >= date.date()) & 
         (hiring_df['date'] < (date + timedelta(days=7)).date())
@@ -700,71 +646,6 @@ if theme_timeline:
     
     fig_theme_time.update_layout(height=400, hovermode='x unified')
     st.plotly_chart(fig_theme_time, use_container_width=True)
-
-# Theme spikes after milestones
-st.markdown("### Theme Spikes Following Major Events")
-
-theme_spike_analysis = []
-for m in milestone_impacts[:5]:  # Top 5 milestones
-    # Get data before and after milestone
-    before = hiring_df[
-        (hiring_df['date'] >= (m['date'] - timedelta(days=7))) & 
-        (hiring_df['date'] < m['date'])
-    ]
-    after = hiring_df[
-        (hiring_df['date'] >= m['date']) & 
-        (hiring_df['date'] < (m['date'] + timedelta(days=7)))
-    ]
-    
-    if len(before) > 0 and len(after) > 0:
-        before_threads = before['thread_id'].nunique()
-        after_threads = after['thread_id'].nunique()
-        
-        for theme_col in theme_columns:
-            theme_name = theme_col.replace('theme_', '')
-            before_theme = before[before[theme_col]]['thread_id'].nunique() / before_threads * 100 if before_threads > 0 else 0
-            after_theme = after[after[theme_col]]['thread_id'].nunique() / after_threads * 100 if after_threads > 0 else 0
-            
-            spike = after_theme - before_theme
-            if abs(spike) > 5:  # Only show significant changes
-                theme_spike_analysis.append({
-                    'Event': m['name'][:40] + '...',
-                    'Theme': theme_name,
-                    'Before %': before_theme,
-                    'After %': after_theme,
-                    'Change': spike
-                })
-
-if theme_spike_analysis:
-    spike_df = pd.DataFrame(theme_spike_analysis)
-    spike_df = spike_df.sort_values('Change', ascending=False)
-    
-    # Show top increases and decreases
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**📈 Themes that Increased After Events**")
-        increases = spike_df[spike_df['Change'] > 0].head(5)
-        for _, row in increases.iterrows():
-            st.markdown(f"""
-            <div style='background-color: #f3f4f6; padding: 10px; margin: 5px 0; border-radius: 5px;'>
-                <b>{row['Theme']}</b> ↑ {row['Change']:.0f}%<br>
-                <small>{row['Event']}<br>
-                {row['Before %']:.0f}% → {row['After %']:.0f}% of threads</small>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("**📉 Themes that Decreased After Events**")
-        decreases = spike_df[spike_df['Change'] < 0].head(5)
-        for _, row in decreases.iterrows():
-            st.markdown(f"""
-            <div style='background-color: #f3f4f6; padding: 10px; margin: 5px 0; border-radius: 5px;'>
-                <b>{row['Theme']}</b> ↓ {abs(row['Change']):.0f}%<br>
-                <small>{row['Event']}<br>
-                {row['Before %']:.0f}% → {row['After %']:.0f}% of threads</small>
-            </div>
-            """, unsafe_allow_html=True)
 
 # Theme distribution by community
 st.markdown("### Theme Focus by Community")
@@ -1216,88 +1097,6 @@ with col2:
                 <i style='font-size: 0.9em; color: #6b7280;'>"{concern['Sample']}"</i>
             </div>
             """, unsafe_allow_html=True)
-
-st.markdown("---")
-
-# Overall Sentiment Gauge (simplified, no longer central)
-st.markdown("### 📈 Overall Hiring Sentiment")
-
-# Define hiring_df - filter for hiring-related content
-hiring_df = filtered_df[filtered_df['is_hiring_related']]
-
-gauge_col1, gauge_col2, gauge_col3 = st.columns([1, 2, 1])
-
-with gauge_col2:
-    if not hiring_df.empty:
-        avg_sentiment = hiring_df['sentiment_score'].mean()
-        
-        # Sentiment categories
-        sentiment_dist = hiring_df['sentiment_category'].value_counts()
-        total_hiring = len(hiring_df)
-        
-        pessimistic_pct = sentiment_dist.get('Pessimistic', 0) / total_hiring * 100
-        neutral_pct = sentiment_dist.get('Neutral', 0) / total_hiring * 100
-        optimistic_pct = sentiment_dist.get('Optimistic', 0) / total_hiring * 100
-        
-        # Create simple bar chart instead of gauge
-        fig_sentiment = go.Figure()
-        
-        fig_sentiment.add_trace(go.Bar(
-            x=[pessimistic_pct],
-            y=['Sentiment'],
-            name='Pessimistic',
-            orientation='h',
-            marker_color='#dc2626',
-            text=f'{pessimistic_pct:.0f}%',
-            textposition='inside',
-            hovertemplate='Pessimistic: %{x:.1f}%<extra></extra>'
-        ))
-        
-        fig_sentiment.add_trace(go.Bar(
-            x=[neutral_pct],
-            y=['Sentiment'],
-            name='Neutral',
-            orientation='h',
-            marker_color='#6b7280',
-            text=f'{neutral_pct:.0f}%',
-            textposition='inside',
-            hovertemplate='Neutral: %{x:.1f}%<extra></extra>'
-        ))
-        
-        fig_sentiment.add_trace(go.Bar(
-            x=[optimistic_pct],
-            y=['Sentiment'],
-            name='Optimistic',
-            orientation='h',
-            marker_color='#059669',
-            text=f'{optimistic_pct:.0f}%' if optimistic_pct > 5 else '',
-            textposition='inside',
-            hovertemplate='Optimistic: %{x:.1f}%<extra></extra>'
-        ))
-        
-        fig_sentiment.update_layout(
-            barmode='stack',
-            height=150,
-            margin=dict(l=0, r=0, t=30, b=0),
-            showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5),
-            xaxis=dict(showticklabels=False, showgrid=False, range=[0, 100]),
-            yaxis=dict(showticklabels=False),
-            title={
-                'text': 'Federal workers are overwhelmingly pessimistic about hiring' if pessimistic_pct > 50 else 'Mixed sentiment about federal hiring',
-                'y':0.95,
-                'x':0.5,
-                'xanchor': 'center',
-                'yanchor': 'top',
-                'font': {'size': 16}
-            }
-        )
-        
-        st.plotly_chart(fig_sentiment, use_container_width=True)
-        
-        st.caption(f"Based on {total_hiring:,} hiring-related discussions across all federal employee subreddits")
-    else:
-        st.warning("No hiring-related discussions found")
 
 # Footer
 st.markdown("---")
