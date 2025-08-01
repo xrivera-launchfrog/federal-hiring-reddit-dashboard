@@ -682,61 +682,6 @@ if community_themes:
     fig_heatmap.update_layout(height=400)
     st.plotly_chart(fig_heatmap, use_container_width=True)
 
-st.markdown("---")
-
-# ===== 6. COMMUNITY & LEGAL RESPONSES =====
-st.markdown("## Community & Legal Responses")
-
-# Legal interventions
-legal_events = [m for m in milestone_impacts if any(term in m['name'].lower() for term in ['court', 'injunction', 'legal'])]
-if legal_events:
-    st.markdown("### Legal Interventions & Worker Reaction")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown(f"""
-        <div class='insight-card insight-info'>
-            <b>Legal Interventions Impact</b><br>
-            <small>⚖️ {len(legal_events)} court-related events analyzed</small><br>
-            <small>📊 Mixed to negative sentiment response</small><br>
-            <small>💭 Pattern: Temporary hope followed by continued concern</small>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Show specific legal events
-        for event in legal_events:
-            st.markdown(f"""
-            **{event['name']}**  
-            • Immediate: {event['impact']['immediate']['negative_pct']:.0f}% negative  
-            • 7-day: {event['impact']['7_day']['negative_pct']:.0f}% negative
-            """)
-    
-    with col2:
-        st.markdown("### Temporary Hope vs. Continued Concern")
-        
-        # Calculate sentiment shift for legal events
-        if legal_events:
-            for event in legal_events:
-                immediate_neg = event['impact']['immediate']['negative_pct']
-                week_neg = event['impact']['7_day']['negative_pct']
-                month_neg = event['impact']['30_day']['negative_pct']
-                
-                if immediate_neg > week_neg:
-                    st.markdown(f"""
-                    <div style='background-color: #d1fae5; padding: 10px; margin: 5px 0; border-radius: 5px;'>
-                        <b>{event['name'][:30]}...</b><br>
-                        Initial relief: {immediate_neg:.0f}% → {week_neg:.0f}% negative (↓{immediate_neg-week_neg:.0f}%)
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""
-                    <div style='background-color: #fee2e2; padding: 10px; margin: 5px 0; border-radius: 5px;'>
-                        <b>{event['name'][:30]}...</b><br>
-                        Disappointment: {immediate_neg:.0f}% → {week_neg:.0f}% negative (↑{week_neg-immediate_neg:.0f}%)
-                    </div>
-                    """, unsafe_allow_html=True)
-
 # Data source citation
 st.markdown("---")
 st.caption("""
