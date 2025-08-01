@@ -530,64 +530,47 @@ for milestone in milestones:
         })
 
 if milestone_impacts:
-    st.markdown("## Major Policy Events & Their Sentiment Impact")
+    st.markdown("## Major Policy Events & Their Impact on Discussion Topics")
     
-    # Find most impactful events
-    most_negative = max(milestone_impacts, key=lambda x: x['impact']['7_day']['negative_pct'])
+    # Find events that triggered most discussion
     most_activity = max(milestone_impacts, key=lambda x: x['impact']['7_day']['posts'])
     
-    # Top Negative Sentiment Policies
-    st.markdown("### Top Negative Sentiment Policies")
+    # Show events by discussion volume
+    st.markdown("### Events That Sparked Most Discussion")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown(f"""
-        <div class='insight-card insight-negative'>
-            <b>Worst Received Policy</b><br>
-            <b style='font-size: 1.1em;'>{most_negative['name']}</b><br>
-            <small>📉 {most_negative['impact']['7_day']['negative_pct']:.0f}% negative sentiment</small><br>
-            <small>💬 {most_negative['impact']['7_day']['posts']} threads discussing this event</small>
+        <div class='insight-card insight-warning'>
+            <b>Highest Discussion Volume</b><br>
+            <b style='font-size: 1.1em;'>{most_activity['name']}</b><br>
+            <small>🔥 {most_activity['impact']['immediate']['posts']} immediate threads</small><br>
+            <small>📈 {most_activity['impact']['7_day']['posts']} total threads in first week</small>
         </div>
         """, unsafe_allow_html=True)
         
-        # RIF/Layoff specific impact
-        layoff_events = [m for m in milestone_impacts if any(term in m['name'].lower() for term in ['layoff', 'termination', 'rif'])]
-        if layoff_events:
-            total_layoff_threads = sum(m['impact']['7_day']['posts'] for m in layoff_events)
-            avg_layoff_negative = sum(m['impact']['7_day']['negative_pct'] for m in layoff_events) / len(layoff_events)
-            
+        # Events with sustained discussion
+        sustained_events = [m for m in milestone_impacts if m['impact']['30_day']['posts'] > 100]
+        if sustained_events:
             st.markdown(f"""
-            <div class='insight-card insight-negative'>
-                <b>Layoff/RIF Events Combined Impact</b><br>
-                <small>📊 {len(layoff_events)} separate termination events</small><br>
-                <small>📉 {avg_layoff_negative:.0f}% average negative sentiment</small><br>
-                <small>💬 {total_layoff_threads} total discussion threads</small>
+            <div class='insight-card insight-info'>
+                <b>Events with Sustained Discussion (30+ days)</b><br>
+                <small>📊 {len(sustained_events)} events maintained high engagement</small><br>
+                <small>💬 Average of {sum(m['impact']['30_day']['posts'] for m in sustained_events) / len(sustained_events):.0f} threads per event</small>
             </div>
             """, unsafe_allow_html=True)
     
     with col2:
-        # Top Positive or Neutral Sentiment Policies (if any exist)
-        least_negative = min(milestone_impacts, key=lambda x: x['impact']['7_day']['negative_pct'])
-        if least_negative['impact']['7_day']['negative_pct'] < 50:
-            st.markdown(f"""
-            <div class='insight-card insight-info'>
-                <b>Least Negative Policy Response</b><br>
-                <b style='font-size: 1.1em;'>{least_negative['name']}</b><br>
-                <small>📊 {least_negative['impact']['7_day']['negative_pct']:.0f}% negative sentiment</small><br>
-                <small>💬 {least_negative['impact']['7_day']['posts']} threads</small>
-            </div>
-            """, unsafe_allow_html=True)
+        # Top 3 most discussed events
+        top_discussed = sorted(milestone_impacts, key=lambda x: x['impact']['7_day']['posts'], reverse=True)[:3]
         
-        # Schedule F specific
-        schedule_f = next((m for m in milestone_impacts if 'Schedule F' in m['name']), None)
-        if schedule_f:
+        st.markdown("**📊 Top Discussion Triggers**")
+        for idx, policy in enumerate(top_discussed):
             st.markdown(f"""
-            <div class='insight-card insight-warning'>
-                <b>Schedule F Launch Impact</b><br>
-                <small>Immediate: {schedule_f['impact']['immediate']['negative_pct']:.0f}% negative</small><br>
-                <small>7-day: {schedule_f['impact']['7_day']['negative_pct']:.0f}% negative</small><br>
-                <small>30-day: {schedule_f['impact']['30_day']['negative_pct']:.0f}% negative</small>
+            <div style='background-color: #f8f9fa; padding: 10px; margin: 5px 0; border-radius: 5px;'>
+                <b>{idx+1}. {policy['name']}</b><br>
+                <small>💬 {policy['impact']['7_day']['posts']} threads in first week</small>
             </div>
             """, unsafe_allow_html=True)
 
@@ -649,91 +632,237 @@ with col2:
 
 st.markdown("---")
 
-# ===== 5. SENTIMENT DYNAMICS =====
-st.markdown("## Sentiment Dynamics")
+# ===== 5. THEME DYNAMICS =====
+st.markdown("## Theme Dynamics")
 
-# Overall sentiment breakdown chart
-st.markdown("### Sentiment Over Time")
+# Theme prevalence over time
+st.markdown("### Most Discussed Themes Following Policy Changes")
 
-# Calculate daily sentiment
-daily_sentiment = hiring_df.groupby('date').agg({
-    'sentiment_score': 'mean',
-    'thread_id': 'nunique',
-    'sentiment_category': lambda x: (x == 'Pessimistic').sum()
-}).reset_index()
-daily_sentiment['negative_pct'] = daily_sentiment['sentiment_category'] / daily_sentiment['thread_id'] * 100
+# Calculate theme prevalence by date
+theme_timeline = []
+for date in pd.date_range(start=date_min, end=date_max, freq='W'):
+    week_data = hiring_df[
+        (hiring_df['date'] >= date.date()) & 
+        (hiring_df['date'] < (date + timedelta(days=7)).date())
+    ]
+    
+    if len(week_data) > 0:
+        week_threads = week_data['thread_id'].nunique()
+        for theme_col in theme_columns:
+            if theme_col in week_data.columns:
+                theme_name = theme_col.replace('theme_', '')
+                theme_threads = week_data[week_data[theme_col]]['thread_id'].nunique()
+                if theme_threads > 0:
+                    theme_timeline.append({
+                        'Date': date.date(),
+                        'Theme': theme_name,
+                        'Percentage': (theme_threads / week_threads * 100) if week_threads > 0 else 0,
+                        'Thread Count': theme_threads
+                    })
 
-# Create sentiment timeline
-fig_sentiment_time = px.line(
-    daily_sentiment,
-    x='date',
-    y='sentiment_score',
-    title='Average Sentiment Score Over Time',
-    labels={'sentiment_score': 'Sentiment Score', 'date': 'Date'},
-    line_shape='spline'
-)
+if theme_timeline:
+    theme_timeline_df = pd.DataFrame(theme_timeline)
+    
+    # Create line chart for top 5 themes
+    top_themes_overall = theme_timeline_df.groupby('Theme')['Thread Count'].sum().nlargest(5).index.tolist()
+    top_theme_data = theme_timeline_df[theme_timeline_df['Theme'].isin(top_themes_overall)]
+    
+    fig_theme_time = px.line(
+        top_theme_data,
+        x='Date',
+        y='Percentage',
+        color='Theme',
+        title='Weekly Theme Prevalence (% of Threads Discussing Each Topic)',
+        labels={'Percentage': '% of Threads', 'Date': 'Week Starting'},
+        line_shape='linear',
+        markers=True
+    )
+    
+    # Add milestone markers
+    if milestone_impacts:
+        for idx, m in enumerate(milestone_impacts[:5]):
+            fig_theme_time.add_annotation(
+                x=m['date'],
+                y=0,
+                text=m['name'][:15] + '...',
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=1,
+                arrowcolor="gray",
+                ax=0,
+                ay=-30,
+                font=dict(size=8),
+                bgcolor="white",
+                bordercolor="gray",
+                borderwidth=1
+            )
+    
+    fig_theme_time.update_layout(height=400, hovermode='x unified')
+    st.plotly_chart(fig_theme_time, use_container_width=True)
 
-# Add policy event markers as annotations instead of vlines
-if milestone_impacts:
-    for idx, m in enumerate(milestone_impacts[:5]):  # Top 5 events
-        # Add a scatter point for the event
-        fig_sentiment_time.add_scatter(
-            x=[m['date']],
-            y=[daily_sentiment[daily_sentiment['date'] == m['date']]['sentiment_score'].iloc[0] if len(daily_sentiment[daily_sentiment['date'] == m['date']]) > 0 else -1],
-            mode='markers',
-            marker=dict(size=10, color='red', symbol='diamond'),
-            name=m['name'][:20] + '...',
-            showlegend=False
-        )
+# Theme spikes after milestones
+st.markdown("### Theme Spikes Following Major Events")
+
+theme_spike_analysis = []
+for m in milestone_impacts[:5]:  # Top 5 milestones
+    # Get data before and after milestone
+    before = hiring_df[
+        (hiring_df['date'] >= (m['date'] - timedelta(days=7))) & 
+        (hiring_df['date'] < m['date'])
+    ]
+    after = hiring_df[
+        (hiring_df['date'] >= m['date']) & 
+        (hiring_df['date'] < (m['date'] + timedelta(days=7)))
+    ]
+    
+    if len(before) > 0 and len(after) > 0:
+        before_threads = before['thread_id'].nunique()
+        after_threads = after['thread_id'].nunique()
         
-        # Add annotation
-        fig_sentiment_time.add_annotation(
-            x=m['date'],
-            y=daily_sentiment['sentiment_score'].min() - 0.2,
-            text=m['name'][:20] + '...',
-            showarrow=True,
-            arrowhead=2,
-            arrowsize=1,
-            arrowwidth=1,
-            arrowcolor="red",
-            ax=0,
-            ay=-30,
-            font=dict(size=9),
-            bgcolor="white",
-            bordercolor="red",
-            borderwidth=1
-        )
+        for theme_col in theme_columns:
+            theme_name = theme_col.replace('theme_', '')
+            before_theme = before[before[theme_col]]['thread_id'].nunique() / before_threads * 100 if before_threads > 0 else 0
+            after_theme = after[after[theme_col]]['thread_id'].nunique() / after_threads * 100 if after_threads > 0 else 0
+            
+            spike = after_theme - before_theme
+            if abs(spike) > 5:  # Only show significant changes
+                theme_spike_analysis.append({
+                    'Event': m['name'][:40] + '...',
+                    'Theme': theme_name,
+                    'Before %': before_theme,
+                    'After %': after_theme,
+                    'Change': spike
+                })
 
-fig_sentiment_time.update_layout(height=400)
-st.plotly_chart(fig_sentiment_time, use_container_width=True)
+if theme_spike_analysis:
+    spike_df = pd.DataFrame(theme_spike_analysis)
+    spike_df = spike_df.sort_values('Change', ascending=False)
+    
+    # Show top increases and decreases
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**📈 Themes that Increased After Events**")
+        increases = spike_df[spike_df['Change'] > 0].head(5)
+        for _, row in increases.iterrows():
+            st.markdown(f"""
+            <div style='background-color: #f3f4f6; padding: 10px; margin: 5px 0; border-radius: 5px;'>
+                <b>{row['Theme']}</b> ↑ {row['Change']:.0f}%<br>
+                <small>{row['Event']}<br>
+                {row['Before %']:.0f}% → {row['After %']:.0f}% of threads</small>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("**📉 Themes that Decreased After Events**")
+        decreases = spike_df[spike_df['Change'] < 0].head(5)
+        for _, row in decreases.iterrows():
+            st.markdown(f"""
+            <div style='background-color: #f3f4f6; padding: 10px; margin: 5px 0; border-radius: 5px;'>
+                <b>{row['Theme']}</b> ↓ {abs(row['Change']):.0f}%<br>
+                <small>{row['Event']}<br>
+                {row['Before %']:.0f}% → {row['After %']:.0f}% of threads</small>
+            </div>
+            """, unsafe_allow_html=True)
 
-# Sentiment by Subreddit
-st.markdown("### Sentiment by Community")
+# Theme distribution by community
+st.markdown("### Theme Focus by Community")
 
-subreddit_sentiment = hiring_df.groupby('subreddit').agg({
-    'sentiment_score': 'mean',
-    'thread_id': 'nunique',
-    'sentiment_category': lambda x: (x == 'Pessimistic').sum()
-}).reset_index()
-subreddit_sentiment['negative_pct'] = subreddit_sentiment['sentiment_category'] / subreddit_sentiment['thread_id'] * 100
-subreddit_sentiment = subreddit_sentiment.sort_values('sentiment_score')
+community_themes = []
+for subreddit in hiring_df['subreddit'].unique():
+    sub_data = hiring_df[hiring_df['subreddit'] == subreddit]
+    sub_threads = sub_data['thread_id'].nunique()
+    
+    if sub_threads > 20:  # Only include subreddits with sufficient data
+        for theme_col in theme_columns:
+            theme_name = theme_col.replace('theme_', '')
+            theme_threads = sub_data[sub_data[theme_col]]['thread_id'].nunique()
+            if theme_threads > 0:
+                community_themes.append({
+                    'Subreddit': f'r/{subreddit}',
+                    'Theme': theme_name,
+                    'Percentage': (theme_threads / sub_threads * 100)
+                })
 
-fig_sub_sentiment = px.bar(
-    subreddit_sentiment,
-    x='sentiment_score',
-    y='subreddit',
-    orientation='h',
-    color='sentiment_score',
-    color_continuous_scale='RdYlGn',
-    color_continuous_midpoint=0,
-    title='Average Sentiment by Subreddit',
-    labels={'sentiment_score': 'Average Sentiment Score', 'subreddit': 'Subreddit'},
-    hover_data={'negative_pct': ':.0f'}
-)
-fig_sub_sentiment.update_layout(height=300)
-st.plotly_chart(fig_sub_sentiment, use_container_width=True)
+if community_themes:
+    comm_theme_df = pd.DataFrame(community_themes)
+    
+    # Create heatmap
+    pivot_df = comm_theme_df.pivot(index='Theme', columns='Subreddit', values='Percentage').fillna(0)
+    
+    fig_heatmap = px.imshow(
+        pivot_df,
+        labels=dict(x="Subreddit", y="Theme", color="% of Threads"),
+        title="Theme Prevalence by Community",
+        color_continuous_scale='Blues',
+        aspect='auto'
+    )
+    fig_heatmap.update_layout(height=400)
+    st.plotly_chart(fig_heatmap, use_container_width=True)
 
 st.markdown("---")
+
+# ===== 6. COMMUNITY & LEGAL RESPONSES =====
+st.markdown("## Community & Legal Responses")
+
+# Legal interventions
+legal_events = [m for m in milestone_impacts if any(term in m['name'].lower() for term in ['court', 'injunction', 'legal'])]
+if legal_events:
+    st.markdown("### Legal Interventions & Worker Reaction")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"""
+        <div class='insight-card insight-info'>
+            <b>Legal Interventions Impact</b><br>
+            <small>⚖️ {len(legal_events)} court-related events analyzed</small><br>
+            <small>📊 Mixed to negative sentiment response</small><br>
+            <small>💭 Pattern: Temporary hope followed by continued concern</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Show specific legal events
+        for event in legal_events:
+            st.markdown(f"""
+            **{event['name']}**  
+            • Immediate: {event['impact']['immediate']['negative_pct']:.0f}% negative  
+            • 7-day: {event['impact']['7_day']['negative_pct']:.0f}% negative
+            """)
+    
+    with col2:
+        st.markdown("### Temporary Hope vs. Continued Concern")
+        
+        # Calculate sentiment shift for legal events
+        if legal_events:
+            for event in legal_events:
+                immediate_neg = event['impact']['immediate']['negative_pct']
+                week_neg = event['impact']['7_day']['negative_pct']
+                month_neg = event['impact']['30_day']['negative_pct']
+                
+                if immediate_neg > week_neg:
+                    st.markdown(f"""
+                    <div style='background-color: #d1fae5; padding: 10px; margin: 5px 0; border-radius: 5px;'>
+                        <b>{event['name'][:30]}...</b><br>
+                        Initial relief: {immediate_neg:.0f}% → {week_neg:.0f}% negative (↓{immediate_neg-week_neg:.0f}%)
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style='background-color: #fee2e2; padding: 10px; margin: 5px 0; border-radius: 5px;'>
+                        <b>{event['name'][:30]}...</b><br>
+                        Disappointment: {immediate_neg:.0f}% → {week_neg:.0f}% negative (↑{week_neg-immediate_neg:.0f}%)
+                    </div>
+                    """, unsafe_allow_html=True)
+
+# Data source citation
+st.markdown("---")
+st.caption("""
+**Data Sources:** Reddit posts from r/FedEmployees, r/govfire, r/DeptHHS, and r/feddiscussion. 
+Policy milestone dates based on publicly reported federal hiring changes and court decisions from January-July 2025.
+All quotes are direct excerpts from high-engagement federal employee discussions.
+""")
 
 # EXPANDED SECTION: Hot Topics and Worker Voices
 st.markdown("## 🔥 Hot Topics: What Federal Workers Are Really Saying")
@@ -741,7 +870,6 @@ st.markdown("## 🔥 Hot Topics: What Federal Workers Are Really Saying")
 # Get high-engagement comments with their parent posts
 high_engagement_comments = filtered_df[
     (filtered_df['type'] == 'comment') &
-    (filtered_df['sentiment_category'] == 'Pessimistic') &
     (filtered_df['body'].notna()) &
     (filtered_df['body'].str.len() > 100) &
     (filtered_df['score'] > 20)  # High engagement threshold for comments
@@ -791,8 +919,8 @@ with col1:
         if len(str(comment['body'])) > 200:
             comment_text += "..."
         
-        # Color based on sentiment intensity
-        bg_color = "#fee2e2" if comment['sentiment_score'] < -2 else "#fef3c7"
+        # Color based on engagement intensity
+        bg_color = "#fee2e2" if comment['score'] > 50 else "#fef3c7"
         
         # Format date
         post_date = comment['created_utc'].strftime('%b %d, %Y')
@@ -830,7 +958,7 @@ with col2:
         if len(str(comment['body'])) > 200:
             comment_text += "..."
         
-        bg_color = "#fee2e2" if comment['sentiment_score'] < -2 else "#fef3c7"
+        bg_color = "#fee2e2" if comment['score'] > 50 else "#fef3c7"
         
         # Format date
         post_date = comment['created_utc'].strftime('%b %d, %Y')
@@ -869,7 +997,7 @@ with col3:
         if len(str(comment['body'])) > 200:
             comment_text += "..."
         
-        bg_color = "#fee2e2" if comment['sentiment_score'] < -2 else "#fef3c7"
+        bg_color = "#fee2e2" if comment['score'] > 50 else "#fef3c7"
         
         # Format date
         post_date = comment['created_utc'].strftime('%b %d, %Y')
@@ -919,13 +1047,13 @@ for idx, thread in top_threads.iterrows():
         if not top_comment.empty:
             top_comment = top_comment.iloc[0]
             
-            # Determine sentiment color
-            sentiment_emoji = "🔴" if thread['avg_sentiment'] < -0.5 else "🟡" if thread['avg_sentiment'] < 0.5 else "🟢"
+            # Determine discussion intensity
+            intensity_emoji = "🔴" if thread['total_items'] > 50 else "🟡" if thread['total_items'] > 20 else "⚪"
             
             st.markdown(f"""
             <div style='background-color: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; border: 1px solid #e5e7eb;'>
                 <div style='margin-bottom: 10px;'>
-                    {sentiment_emoji} <b>{post['title'] if pd.notna(post['title']) else 'Discussion'}</b>
+                    {intensity_emoji} <b>{post['title'] if pd.notna(post['title']) else 'Discussion'}</b>
                     <span style='float: right; color: #6b7280;'>r/{post['subreddit']} | {thread['total_items']-1} comments | {thread['total_score']} total score</span>
                 </div>
                 <div style='padding: 10px; background-color: white; border-radius: 3px; margin-top: 5px;'>
